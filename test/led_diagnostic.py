@@ -121,19 +121,42 @@ def main() -> int:
     prepare_core_package()
     led_module = importlib.import_module("core.led")
     LEDController = led_module.LEDController
+    lgpio_available = bool(getattr(led_module, "lgpio_available", False))
+    mockfish_enabled = bool(getattr(led_module, "MOCKFISH", False))
+
+    if not lgpio_available and not mockfish_enabled:
+        print(
+            "lgpio is not installed in this Python environment. "
+            "The LED diagnostic will not control real GPIO.\n"
+            "Activate your venv and install requirements:\n"
+            "  source venv/bin/activate\n"
+            "  pip3 install -r requirements.txt"
+        )
+        return 2
 
     try:
         with LEDController(pin=args.pin) as led:
-            if args.action in ("all", "on"):
+            if args.action == "on":
                 print(f"LED ON (GPIO {args.pin})")
                 led.on()
-                if args.action == "all":
+                if args.hold > 0:
                     time.sleep(args.hold)
 
-            if args.action in ("all", "off"):
+            if args.action == "off":
                 print(f"LED OFF (GPIO {args.pin})")
                 led.off()
-                if args.action == "all":
+                if args.hold > 0:
+                    time.sleep(args.hold)
+
+            if args.action == "all":
+                print(f"LED ON (GPIO {args.pin})")
+                led.on()
+                if args.hold > 0:
+                    time.sleep(args.hold)
+
+                print(f"LED OFF (GPIO {args.pin})")
+                led.off()
+                if args.hold > 0:
                     time.sleep(args.hold)
 
             if args.action in ("all", "flash"):

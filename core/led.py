@@ -1,8 +1,15 @@
+import os
 import time
 from threading import Lock
 
-from .config import MOCKFISH
 from .logger import logger
+
+
+def _is_mockfish_enabled() -> bool:
+    return os.getenv("MOCKFISH", "false").strip().lower() == "true"
+
+
+MOCKFISH = _is_mockfish_enabled()
 
 
 try:
