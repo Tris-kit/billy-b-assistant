@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "id": "google-global-en",
+      "name": "Google News (Global/en)",
+      "url": "https://news.google.com/rss/search?q={{query}}&hl=en-US&gl=US&ceid=US:en",
+      "topics": [
+        "general"
+      ]
+    },
+    {
+      "id": "billy-project-releases",
+      "name": "Billy Project Releases",
+      "url": "https://github.com/Thokoop/billy-b-assistant/releases.atom",
+      "topics": [
+        "billy",
+        "project",
+        "release",
+        "update",
+        "changelog"
+      ]
+    }
+  ]
+}

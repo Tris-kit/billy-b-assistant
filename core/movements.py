@@ -83,10 +83,16 @@ if BILLY_PINS == "legacy":
         GND_2 = 6  # head mate (keep LOW)
         GND_3 = 26  # tail mate (keep LOW)
 else:
-    # NEW quiet wiring (mates are tied to GND in hardware)
-    HEAD = 22  # pin 15
-    MOUTH = 17  # pin 11
-    TAIL = 27  # pin 13
+    # Custom wiring because I made mistakes
+    HEAD = 17  # pin 15
+    MOUTH = 27  # pin 11
+    TAIL = 23  # pin 13
+
+# else:
+#     # NEW quiet wiring (mates are tied to GND in hardware)
+#     HEAD = 22  # pin 15
+#     MOUTH = 17  # pin 11
+#     TAIL = 27  # pin 13
 
 # Collect all pins we actually use
 motor_pins = [p for p in (MOUTH, HEAD, TAIL, GND_1, GND_2, GND_3) if p is not None]
