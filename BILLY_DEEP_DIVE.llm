@@ -1,0 +1,263 @@
+# Billy B-Assistant Deep Dive
+
+This file documents how Billy works end-to-end, with an emphasis on:
+- where LLM work happens (provider-side)
+- where tool/function logic runs locally on the Pi
+- how audio, motors, sessions, and user state interact
+
+## TL;DR: Is everything offloaded to OpenAI?
+
+No.
+
+- The realtime model (OpenAI or xAI) handles speech generation, response text, and deciding whether to call tools.
+- Tool implementations are mostly local Python code on the Pi.
+- Local handlers can call external services (Home Assistant API, RSS/weather/sports feeds, camera capture commands), then feed results back into the realtime session.
+- With xAI, provider-native tools (`web_search`, `x_search`) also execute provider-side.
+
+So the model is remote, but a meaningful part of behavior is local orchestration + local tool execution.
+
+## Main Runtime Architecture
+
+Entry point:
+- `main.py` ensures `.env` exists, loads environment, starts MQTT, starts motor watchdog, and enters button/session loop.
+
+High-level components:
+- Session orchestration: `core/session_manager.py`
+- Session state machine: `core/session/state_machine.py`
+- Tool routing/execution: `core/session/function_handler.py`
+- Tool definitions and mode filtering: `core/base_tools.py`, `core/session/tool_manager.py`
+- Realtime provider abstraction: `core/realtime_ai_provider.py`
+- Providers: `core/providers/openai_provider.py`, `core/providers/xai_provider.py`
+- Audio I/O and playback/motor sync: `core/audio.py`, `core/session/audio_handler.py`, `core/session/mic_manager_wrapper.py`
+- Motor control: `core/movements.py`
+- User/persona context: `core/profile_manager.py`, `core/persona_manager.py`, `core/session/user_handler.py`, `core/session/persona_handler.py`
+- Triggers and control plane: `core/button.py`, `core/mqtt.py`, `core/say.py`
+- Wake-word: `core/wakeword_listener.py` + provider backends
+- Web config/API: `webconfig/`
+
+## Startup and Session Lifecycle
+
+1) Boot/start:
+- `main.py` loads config and starts:
+  - MQTT thread (`start_mqtt`)
+  - motor watchdog (`start_motor_watchdog`)
+  - button loop (`core.button.start_loop`)
+
+2) Session start triggers:
+- Hardware button/wake-word trigger in `core/button.py`
+- MQTT command/listen trigger in `core/mqtt.py`
+- MQTT say/song flows in `core/mqtt.py` + `core/say.py`
+
+3) Session initialization (`BillySession.start`):
+- Reload persona from current user profile.
+- Build instructions with user/persona context.
+- Build tool list based on guest/user mode and feature flags.
+- Connect provider websocket and send `session.update`.
+- Optionally inject kickoff message for MQTT say flow.
+
+4) Streaming loop (`BillySession.run_stream`):
+- Receives realtime events (`response.created`, transcript deltas, audio deltas, function-call args, `response.done`, errors).
+- Routes each event into state/audio/tool handlers.
+- Manages mic open/close and follow-up windows.
+
+5) Session end:
+- Mic stops, websocket closes, motors/state return idle.
+- User interaction count increments.
+
+## Realtime Provider Layer
+
+Provider selection:
+- Registered in `core/providers/__init__.py`.
+- Default chosen from env keys and `REALTIME_AI_PROVIDER`.
+
+OpenAI path:
+- `core/providers/openai_provider.py`
+- Websocket: `wss://api.openai.com/v1/realtime?model=...`
+- Session config includes instructions, tools, server VAD params, and audio I/O config.
+- Provider-specific tools: none.
+
+xAI path:
+- `core/providers/xai_provider.py`
+- Websocket: `wss://api.x.ai/v1/realtime`
+- Similar session setup with xAI fields.
+- Provider-specific tools enabled: `web_search`, `x_search`.
+
+Key point:
+- Both providers receive instructions + tool schema.
+- The model decides if/when to call tools.
+
+## Local Tool-Call Execution (Core Answer)
+
+Tool schema exposure:
+- Base tools defined in `core/base_tools.py`.
+- User-only tools appended when mode is `user`.
+- `ToolManager` filters tools by mode and feature availability (conversation_state toggle, camera hardware).
+
+Function call handling:
+- Realtime function-call deltas are buffered in `BillySession._on_tool_args_delta`.
+- On `response.function_call_arguments.done`, `FunctionHandler.handle(...)` dispatches local handlers.
+
+Local handlers in `core/session/function_handler.py`:
+- `conversation_state` (internal follow-up signal)
+- `update_personality` (writes persona traits)
+- `play_song`
+- `smart_home_command` (Home Assistant call)
+- `identify_user`
+- `store_memory`
+- `manage_profile`
+- `switch_persona`
+- `get_news_digest` (local fetch/aggregation path)
+- `describe_scene` (camera capture + image injection; OpenAI path required in current build)
+
+How result returns to model:
+- Handler sends `conversation.item.create` with `function_call_output`.
+- Often injects a follow-up user message containing structured context/result.
+- Triggers `response.create` so the model speaks a natural answer.
+
+This is why Billy is not "just offloading everything": model reasoning is remote, but tool side-effects and integrations are local.
+
+## Turn Management and Follow-Up Policy
+
+State machine (`core/session/state_machine.py`) tracks:
+- assistant/user turn gating
+- transcript/audio deltas
+- speech/noise heuristics
+- follow-up expectations
+- retry budget for empty/noisy turns
+
+Follow-up decision path (`core/session_manager.py`):
+- Honors explicit `conversation_state` tool when present.
+- Falls back to heuristic (question-mark detection) when missing.
+- Supports modes: `always`, `never`, `auto`.
+- Distinguishes announcement-style sessions vs interactive sessions.
+- Reopens mic when follow-up expected; otherwise ends session.
+
+Noise handling:
+- Uses chunk count, RMS, loud chunk ratio, server-VAD signals to filter non-speech turns.
+- Can cancel short/noisy turns and keep listening without consuming full retries.
+
+## Audio + Motor Pipeline
+
+Input:
+- Mic stream captured via `sounddevice`.
+- Chunks are resampled when needed and sent as `input_audio_buffer.append`.
+- Server VAD events (`speech_started`, `speech_stopped`, `committed`) feed state logic.
+
+Output:
+- Realtime audio deltas decoded from base64 and queued for playback.
+- Playback worker streams audio to output device.
+- Mouth flaps driven by chunk energy while speaking.
+- Tail/head movement coordinated during speech and songs.
+
+State signaling:
+- MQTT state topic publishes `idle`, `listening`, `speaking`.
+- Head retract delay and movement timing managed by state + motor modules.
+
+## User, Persona, and Memory Flow
+
+Instruction context:
+- `get_instructions_with_user_context()` builds dynamic prompt from:
+  - guest vs user mode
+  - active persona instructions/traits/backstory
+  - current user profile context
+
+Persistence:
+- User profiles and memories live in profile storage managed by `profile_manager`.
+- Persona assets/config loaded by `persona_manager`.
+
+Runtime updates:
+- `identify_user` can move from guest to known-user context.
+- Persona switches can happen mid-session and trigger session updates.
+
+## Trigger Surfaces and External Control
+
+Button:
+- Primary local UX for start/interrupt/stop behavior.
+
+Wake-word:
+- Optional always-on listener (backend pluggable, porcupine included).
+- Paused during active sessions to avoid mic contention.
+
+MQTT:
+- Remote commands (`billy/command`) for control operations.
+- `billy/say` supports:
+  - literal one-shot TTS
+  - conversational kickoff mode
+  - optional interactive follow-up behavior
+- `billy/song` triggers song playback path.
+
+Web UI/API (`webconfig/`):
+- Settings, service control, logs, audio tests, motor tests
+- Persona/profile CRUD + import/export
+- Song management
+- News source management
+- Camera/wake-word/system routes
+
+## Configuration Surface (Important Knobs)
+
+Provider/model:
+- `OPENAI_API_KEY`, `OPENAI_MODEL`
+- `XAI_API_KEY`
+- `REALTIME_AI_PROVIDER`
+
+Conversation behavior:
+- `TURN_EAGERNESS` + `SERVER_VAD_PARAMS`
+- `MIC_TIMEOUT_SECONDS`
+- `SILENCE_THRESHOLD`
+- `FOLLOW_UP_RETRY_LIMIT`
+- `RUN_MODE`, `TEXT_ONLY_MODE`
+
+Hardware/profile:
+- `BILLY_MODEL`, `BILLY_PINS`
+- `CAMERA_HARDWARE` and camera capture vars
+- wake-word vars (`WAKE_WORD_*`)
+
+Transport/integrations:
+- MQTT vars (`MQTT_*`)
+- Home Assistant vars (`HA_*`)
+
+## Practical Debug Map
+
+If Billy talks but tools do nothing:
+- Check tool appears in session tools (mode/feature flags may filter it).
+- Confirm `response.function_call_arguments.done` arrives.
+- Verify matching handler exists in `FunctionHandler.handlers`.
+
+If model ignores follow-up behavior:
+- Check whether `conversation_state` is enabled for the model.
+- Inspect fallback heuristic path for question detection.
+
+If mic appears "stuck":
+- Check wake-word listener pause/resume and session lock states.
+- Check playback gate/event and mic timeout logic.
+
+If camera tool fails:
+- Current scene tool path expects OpenAI provider for Realtime image flow.
+- Validate camera hardware setting and capture command dependencies.
+
+## Extension Points
+
+Add new local tool:
+1. Add schema in `core/base_tools.py` (or user tool list).
+2. Add handler mapping + implementation in `core/session/function_handler.py`.
+3. If tool availability should depend on mode/hardware, update `tool_manager`.
+4. Ensure handler sends `function_call_output` and triggers follow-up response when needed.
+
+Add new provider:
+1. Implement `RealtimeAIProvider` subclass.
+2. Register in `core/providers/__init__.py`.
+3. Map env/config defaults and provider-specific tools if any.
+
+Add wake-word backend:
+1. Implement wake-word provider interface.
+2. Register backend in provider registry.
+3. Configure via `WAKE_WORD_BACKEND`.
+
+## Bottom Line
+
+Billy is a hybrid architecture:
+- remote realtime model for speech + reasoning + tool decisioning
+- local orchestrator for sessions/audio/motors/state
+- local tool execution for integrations and side-effects
+
+It is not pure OpenAI offload; the Pi runs substantial application logic.
