@@ -54,8 +54,10 @@ def signal_handler(sig, frame):
     core.button.stop_background_services()
     playback_queue.put(None)
     from core.movements import cleanup_gpio
+    from core.led import cleanup_led
 
     cleanup_gpio()
+    cleanup_led()
     stop_mqtt()
     sys.exit(0)
 
@@ -83,7 +85,9 @@ if __name__ == "__main__":
         traceback.print_exc()
         core.button.stop_background_services()
         from core.movements import cleanup_gpio
+        from core.led import cleanup_led
 
         cleanup_gpio()
+        cleanup_led()
         stop_mqtt()
         sys.exit(1)

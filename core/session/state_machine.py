@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 from ..config import HEAD_RETRACT_DELAY_SECONDS, SILENCE_THRESHOLD
+from ..led import set_led_mode
 from ..logger import logger
 from ..movements import move_head
 from ..mqtt import mqtt_publish
@@ -328,17 +329,20 @@ class SessionState:
         """Set Billy to listening state."""
         self._cancel_head_retract_timer()
         move_head("on")
+        set_led_mode("listening")
         mqtt_publish("billy/state", "listening")
 
     def set_speaking_state(self):
         """Set Billy to speaking state."""
         self._schedule_head_retract()
+        set_led_mode("idle")
         mqtt_publish("billy/state", "speaking")
 
     def set_idle_state(self):
         """Set Billy to idle state."""
         self._cancel_head_retract_timer()
         move_head("off")
+        set_led_mode("idle")
         mqtt_publish("billy/state", "idle")
 
     def _cancel_head_retract_timer(self):

@@ -7,6 +7,7 @@ from typing import Any
 
 from ..config import PERSONALITY, TEXT_ONLY_MODE
 from ..ha import send_conversation_prompt
+from ..led import temporary_led_mode
 from ..logger import logger
 from ..news_digest import get_news_digest
 from ..persona import update_persona_ini
@@ -224,7 +225,8 @@ class FunctionHandler:
             return
 
         logger.info(f"Sending to Home Assistant Conversation API: {prompt}", "🏠")
-        ha_response = await send_conversation_prompt(prompt)
+        with temporary_led_mode("thinking"):
+            ha_response = await send_conversation_prompt(prompt)
         speech_text = None
 
         if isinstance(ha_response, dict):
@@ -325,7 +327,8 @@ class FunctionHandler:
         args = self._parse_json_args(raw_args, "get_news_digest")
         if logger.get_level().name == "VERBOSE":
             logger.verbose(f"get_news_digest:args {args}", "🗞️")
-        result = await asyncio.to_thread(get_news_digest, args)
+        with temporary_led_mode("thinking"):
+            result = await asyncio.to_thread(get_news_digest, args)
         if logger.get_level().name == "VERBOSE":
             logger.verbose(
                 "get_news_digest:result "
