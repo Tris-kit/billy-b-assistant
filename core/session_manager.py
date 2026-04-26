@@ -1019,6 +1019,8 @@ class BillySession:
             )
             self.mic_manager.mic_running = False
         await self._close_ws()
+        self._set_idle_state()
+        stop_all_motors()
 
         # Give the message loop a moment to exit
         await asyncio.sleep(0.1)
@@ -1028,6 +1030,8 @@ class BillySession:
         self.session_active.clear()
         # Ensure run_stream is not left waiting on recv() keepalive timeouts.
         await self._close_ws(timeout=0.5)
+        self._set_idle_state()
+        stop_all_motors()
 
     async def interrupt_to_user_turn(self):
         """Interrupt the assistant response and hand control back to the user mic."""
