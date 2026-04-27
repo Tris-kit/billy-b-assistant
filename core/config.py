@@ -176,7 +176,7 @@ MOUTH_ARTICULATION = int(os.getenv("MOUTH_ARTICULATION", "5"))
 TURN_EAGERNESS = os.getenv("TURN_EAGERNESS", "high").strip().lower()
 HEAD_RETRACT_DELAY_SECONDS = float(os.getenv("HEAD_RETRACT_DELAY_SECONDS", "1.5"))
 WAKE_WORD_ENABLED = os.getenv("WAKE_WORD_ENABLED", "false").lower() == "true"
-WAKE_WORD_BACKEND = os.getenv("WAKE_WORD_BACKEND", "porcupine").strip().lower()
+WAKE_WORD_BACKEND = os.getenv("WAKE_WORD_BACKEND", "openwakeword").strip().lower()
 WAKE_WORD_COOLDOWN_SECONDS = float(os.getenv("WAKE_WORD_COOLDOWN_SECONDS", "4.0"))
 PORCUPINE_ACCESS_KEY = os.getenv("PORCUPINE_ACCESS_KEY", "").strip()
 WAKE_WORD_PORCUPINE_KEYWORD_PATH = os.getenv(

@@ -431,11 +431,14 @@ CAMERA_CAPTURE_WIDTH=1280
 CAMERA_CAPTURE_HEIGHT=720
 CAMERA_CAPTURE_TIMEOUT_SECONDS=8
 WAKE_WORD_ENABLED=false
-WAKE_WORD_BACKEND=porcupine
+WAKE_WORD_BACKEND=openwakeword
 WAKE_WORD_COOLDOWN_SECONDS=4.0
 PORCUPINE_ACCESS_KEY=
 WAKE_WORD_PORCUPINE_KEYWORD_PATH=hey-billy.ppn
 WAKE_WORD_PORCUPINE_SENSITIVITY=0.20
+WAKE_WORD_OPENWAKEWORD_MODEL_PATH=hey_fish.onnx
+WAKE_WORD_OPENWAKEWORD_THRESHOLD=0.50
+WAKE_WORD_OPENWAKEWORD_INFERENCE_FRAMEWORK=onnx
 
 DEBUG_MODE=true
 DEBUG_MODE_INCLUDE_DELTA=false
@@ -458,36 +461,38 @@ ALLOW_UPDATE_PERSONALITY_INI=true
 **CAMERA_CAPTURE_WIDTH / CAMERA_CAPTURE_HEIGHT**: Capture resolution in pixels (default `1280x720`)  
 **CAMERA_CAPTURE_TIMEOUT_SECONDS**: Timeout for local camera capture command (seconds, default `8`)  
 **WAKE_WORD_ENABLED**: Enables local wake-word listening while idle (`false` by default)  
-**WAKE_WORD_BACKEND**: Local detector backend (`porcupine`)  
+**WAKE_WORD_BACKEND**: Local detector backend (`openwakeword` or `porcupine`)  
 **WAKE_WORD_COOLDOWN_SECONDS**: Cooldown after a detection to reduce retriggers (default `4.0`)  
 **PORCUPINE_ACCESS_KEY**: Your Porcupine AccessKey (required when `WAKE_WORD_BACKEND=porcupine`)  
 **WAKE_WORD_PORCUPINE_KEYWORD_PATH**: Porcupine keyword filename (for example `hey-billy.ppn`). Billy resolves it from `wakewords/`.  
 **WAKE_WORD_PORCUPINE_SENSITIVITY**: Porcupine sensitivity from `0.0` to `1.0` (higher is more sensitive). Default is `0.20` to reduce near-match false triggers.  
+**WAKE_WORD_OPENWAKEWORD_MODEL_PATH**: openWakeWord model filename/path (for example `hey_fish.onnx` or `hey_fish.tflite`). Filename-only values are resolved from `wakewords/`.  
+**WAKE_WORD_OPENWAKEWORD_THRESHOLD**: openWakeWord score threshold from `0.0` to `1.0` (default `0.50`)  
+**WAKE_WORD_OPENWAKEWORD_INFERENCE_FRAMEWORK**: openWakeWord runtime (`onnx` or `tflite`, default `onnx`)  
 **DEBUG_MODE**: Print debug information such as OpenAI responses to the output stream  
 **DEBUG_MODE_INCLUDE_DELTA**: Also print voice and speech delta data, which can get very noisy  
 **ALLOW_UPDATE_PERSONALITY_INI**: If true, personality updates asked for by the user will be written and committed to the personality file. If false, changes to personality parameters will only affect the current running process (`true` is default)
 
-### Wake-word setup (Porcupine)
+### Wake-word setup (openWakeWord)
 
-Billy supports fully local wake-word detection using Porcupine.
-The default bundled wake-word is **"Hey Billy"** (`hey-billy.ppn`).
+Billy supports fully local wake-word detection using openWakeWord.
+To use **"Hey Fish"**, add your `hey_fish` model file to `wakewords/`.
 
-1. Create a Porcupine AccessKey at <https://console.picovoice.ai/>.
-   - Picovoice signup may require linking/signing in with a GitHub account.
-   - If you do not have one yet, create one first at <https://github.com/signup>.
-2. Place a `.ppn` keyword file in `wakewords/` (or upload it via Web UI, which stores it there automatically).
-3. In the Web UI, open **Wake-word Settings** and:
-   - Enable wake-word
-   - Paste your `PORCUPINE_ACCESS_KEY`
-   - Select the keyword file from the dropdown
-   - Save settings
-4. Restart Billy (or restart service) and test the keyword.
+1. Install dependencies:
+   - `pip3 install -r requirements.txt`
+2. Put your openWakeWord model file in `wakewords/`:
+   - for example: `wakewords/hey_fish.onnx`
+3. Set `.env`:
+   - `WAKE_WORD_ENABLED=true`
+   - `WAKE_WORD_BACKEND=openwakeword`
+   - `WAKE_WORD_OPENWAKEWORD_MODEL_PATH=hey_fish.onnx`
+   - `WAKE_WORD_OPENWAKEWORD_THRESHOLD=0.50`
+4. Restart Billy (or restart the service) and test by saying "Hey Fish".
 
 Notes:
-- `WAKE_WORD_PORCUPINE_KEYWORD_PATH` stores only the filename (for example `hey-billy.ppn`).
-- Billy resolves that filename automatically from `wakewords/`.
-- A default bundled keyword file is included: `hey-billy.ppn` (Hey Billy).
-- You can create your own custom wake-word in Picovoice and upload/select that `.ppn` instead.
+- `WAKE_WORD_OPENWAKEWORD_MODEL_PATH` accepts absolute paths, project-relative paths, or filename-only values.
+- Filename-only model values are automatically resolved from `wakewords/`.
+- Keep `WAKE_WORD_OPENWAKEWORD_THRESHOLD` between `0.35` and `0.65` while tuning false accepts/rejects.
 
 ### Example `persona.ini` File
 
