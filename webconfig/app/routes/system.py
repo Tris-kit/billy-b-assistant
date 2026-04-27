@@ -43,6 +43,8 @@ if not ENV_PATH or not os.path.exists(ENV_PATH):
     ENV_PATH = os.path.join(project_root, ".env")
 CONFIG_KEYS = [
     "OPENAI_API_KEY",
+    "XAI_API_KEY",
+    "REALTIME_AI_PROVIDER",
     "OPENAI_MODEL",
     "BILLY_MODEL",
     "BILLY_PINS",
@@ -78,8 +80,43 @@ CONFIG_KEYS = [
     "PORCUPINE_ACCESS_KEY",
     "WAKE_WORD_PORCUPINE_KEYWORD_PATH",
     "WAKE_WORD_PORCUPINE_SENSITIVITY",
+    "WAKE_WORD_OPENWAKEWORD_MODEL_PATH",
+    "WAKE_WORD_OPENWAKEWORD_THRESHOLD",
+    "WAKE_WORD_OPENWAKEWORD_INFERENCE_FRAMEWORK",
 ]
 WAKEWORD_REL_ROOT = Path("wakewords")
+
+
+def _reload_runtime_modules():
+    import importlib
+
+    reload_order = [
+        "core.config",
+        "core.providers",
+        "app.core_imports",
+        "webconfig.app.core_imports",
+    ]
+    for module_name in reload_order:
+        module = sys.modules.get(module_name)
+        if module is not None:
+            importlib.reload(module)
+
+
+def _get_voice_options() -> list[str]:
+    try:
+        provider = voice_provider_registry.get_provider()
+        return provider.get_supported_voices()
+    except Exception as e:
+        logger.warning(f"[config] No realtime provider available: {e}")
+        return []
+
+
+def _build_config_payload(config_module) -> dict[str, str]:
+    config_data: dict[str, str] = {}
+    for key in CONFIG_KEYS:
+        raw_value = getattr(config_module, key, "")
+        config_data[key] = "" if raw_value is None else str(raw_value)
+    return config_data
 
 
 def _detect_rpi_camera_available() -> bool:
@@ -198,6 +235,22 @@ def _list_available_wakeword_keywords() -> list[str]:
             continue
         seen.add(filename)
         paths.append(filename)
+    return paths
+
+
+def _list_available_openwakeword_models() -> list[str]:
+    paths: list[str] = []
+    seen: set[str] = set()
+    abs_root = Path(PROJECT_ROOT) / WAKEWORD_REL_ROOT
+    if not abs_root.exists():
+        return paths
+    for pattern in ("*.onnx", "*.tflite"):
+        for model in sorted(abs_root.glob(pattern)):
+            filename = model.name
+            if filename in seen:
+                continue
+            seen.add(filename)
+            paths.append(filename)
     return paths
 
 
@@ -462,23 +515,22 @@ def delayed_restart():
 
 @bp.route("/")
 def index():
+    voice_options = _get_voice_options() or [
+        "alloy",
+        "ash",
+        "ballad",
+        "coral",
+        "echo",
+        "sage",
+        "shimmer",
+        "verse",
+        "marin",
+        "cedar",
+    ]
     return render_template(
         "index.html",
-        config={k: str(getattr(core_config, k, "")) for k in CONFIG_KEYS}
-        | {
-            "VOICE_OPTIONS": [
-                "alloy",
-                "ash",
-                "ballad",
-                "coral",
-                "echo",
-                "sage",
-                "shimmer",
-                "verse",
-                "marin",
-                "cedar",
-            ],
-        },
+        config=_build_config_payload(core_config)
+        | {"VOICE_OPTIONS": voice_options},
     )
 
 
@@ -634,11 +686,18 @@ def save():
     old_port = os.getenv("FLASK_PORT", "80")
     changed_port = False
     audio_restart_required = False
+    service_restart_required = False
     audio_restart_keys = {
         "MIC_PREFERENCE",
         "SPEAKER_PREFERENCE",
         "MIC_TIMEOUT_SECONDS",
         "SILENCE_THRESHOLD",
+    }
+    service_restart_keys = {
+        "OPENAI_API_KEY",
+        "XAI_API_KEY",
+        "REALTIME_AI_PROVIDER",
+        "OPENAI_MODEL",
     }
     for key, value in data.items():
         if key in CONFIG_KEYS:
@@ -655,9 +714,13 @@ def save():
                 changed_port = True
             if key in audio_restart_keys and new_value != old_value:
                 audio_restart_required = True
+            if key in service_restart_keys and new_value != old_value:
+                service_restart_required = True
     response = {"status": "ok"}
     if audio_restart_required:
         response["audio_restart_required"] = True
+    if service_restart_required:
+        response["service_restart_required"] = True
     if changed_port:
         response["port_changed"] = True
         threading.Thread(target=delayed_restart).start()
@@ -702,6 +765,63 @@ def upload_porcupine_keyword():
 @bp.route("/wakeword/keywords", methods=["GET"])
 def list_wakeword_keywords():
     return jsonify({"keywords": _list_available_wakeword_keywords()})
+
+
+@bp.route("/wakeword/openwakeword-models", methods=["GET"])
+def list_openwakeword_models():
+    return jsonify({"models": _list_available_openwakeword_models()})
+
+
+@bp.route("/wakeword/openwakeword-model/upload", methods=["POST"])
+def upload_openwakeword_model():
+    model_file = request.files.get("model_file")
+    if model_file is None:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    filename = secure_filename(model_file.filename or "")
+    if not filename:
+        return jsonify({"error": "Invalid filename"}), 400
+
+    lower_name = filename.lower()
+    if not (lower_name.endswith(".onnx") or lower_name.endswith(".tflite")):
+        return jsonify({"error": "Only .onnx and .tflite files are supported"}), 400
+
+    target_rel_dir = WAKEWORD_REL_ROOT
+    target_dir = Path(PROJECT_ROOT) / target_rel_dir
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / filename
+
+    try:
+        model_file.save(target_path)
+        set_key(
+            ENV_PATH,
+            "WAKE_WORD_OPENWAKEWORD_MODEL_PATH",
+            filename,
+            quote_mode='never',
+        )
+        set_key(ENV_PATH, "WAKE_WORD_BACKEND", "openwakeword", quote_mode='never')
+        if lower_name.endswith(".tflite"):
+            set_key(
+                ENV_PATH,
+                "WAKE_WORD_OPENWAKEWORD_INFERENCE_FRAMEWORK",
+                "tflite",
+                quote_mode='never',
+            )
+        else:
+            set_key(
+                ENV_PATH,
+                "WAKE_WORD_OPENWAKEWORD_INFERENCE_FRAMEWORK",
+                "onnx",
+                quote_mode='never',
+            )
+
+        return jsonify({
+            "status": "uploaded",
+            "model_path": filename,
+        })
+    except Exception as e:
+        logger.warning(f"[wakeword] openWakeWord model upload failed: {e}", "⚠️")
+        return jsonify({"error": f"Upload failed: {e}"}), 500
 
 
 @bp.route("/camera/devices", methods=["GET"])
@@ -776,32 +896,16 @@ def camera_preview():
 
 @bp.route("/config")
 def get_config():
-    # Reload .env file and core config to get latest values
+    # Reload .env + provider modules to get latest values.
     from dotenv import load_dotenv
 
     load_dotenv(ENV_PATH, override=True)
-
-    # Reload core config module to pick up new .env values
-    import importlib
-    import sys
-
-    if 'core.config' in sys.modules:
-        importlib.reload(sys.modules['core.config'])
-
-    # Re-import core_config to get fresh values
+    _reload_runtime_modules()
     from ..core_imports import core_config
 
     # Get basic configuration
-    config_data = {k: str(getattr(core_config, k, "")) for k in CONFIG_KEYS}
-
-    # Add voice options from the current provider
-    try:
-        current_provider = voice_provider_registry.get_provider()
-        voices = current_provider.get_supported_voices()
-    except Exception as e:
-        logger.warning(f"[config] No realtime provider available: {e}")
-        voices = []
-    config_data["VOICE_OPTIONS"] = voices
+    config_data = _build_config_payload(core_config)
+    config_data["VOICE_OPTIONS"] = _get_voice_options()
 
     # Add user profile information
     try:
@@ -943,27 +1047,7 @@ def refresh_config():
         from dotenv import load_dotenv
 
         load_dotenv(ENV_PATH, override=True)
-
-        # Import and reload core modules that might have cached configuration
-        import importlib
-        import sys
-
-        # Reload core modules that contain configuration
-        modules_to_reload = [
-            'core.config',
-            'core.personality',
-            'core.wakeup',
-            'core.say',
-            'core.audio',
-        ]
-
-        for module_name in modules_to_reload:
-            if module_name in sys.modules:
-                importlib.reload(sys.modules[module_name])
-
-        # Also reload the core_imports to get fresh references
-        if 'app.core_imports' in sys.modules:
-            importlib.reload(sys.modules['app.core_imports'])
+        _reload_runtime_modules()
 
         return jsonify({"status": "ok", "message": "Configuration refreshed"})
     except Exception as e:
@@ -978,19 +1062,14 @@ def auto_refresh_config():
         from dotenv import load_dotenv
 
         load_dotenv(ENV_PATH, override=True)
-
-        # Reload core config module
-        import importlib
-        import sys
-
-        if 'core.config' in sys.modules:
-            importlib.reload(sys.modules['core.config'])
+        _reload_runtime_modules()
 
         # Get updated configuration
         from ..core_imports import core_config
 
         # Return updated config data
-        config_data = {k: str(getattr(core_config, k, "")) for k in CONFIG_KEYS}
+        config_data = _build_config_payload(core_config)
+        config_data["VOICE_OPTIONS"] = _get_voice_options()
 
         # Add user profile information
         try:

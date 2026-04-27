@@ -1,8 +1,14 @@
+from __future__ import annotations
+
 import asyncio
 import configparser
 import os
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(*args, **kwargs):
+        return False
 
 from .persona import (
     PersonaProfile,
@@ -152,8 +158,18 @@ def get_tool_instructions(model: str | None = None) -> str:
 # === XAI Config ===
 XAI_API_KEY = os.getenv("XAI_API_KEY", "")
 
+
+def _normalize_realtime_provider(value: str | None) -> str | None:
+    provider = (value or "").strip().lower()
+    if provider == "grok":
+        return "xai"
+    return provider or None
+
+
 # === Provider Config ===
-REALTIME_AI_PROVIDER = os.getenv("REALTIME_AI_PROVIDER", None)
+REALTIME_AI_PROVIDER = _normalize_realtime_provider(
+    os.getenv("REALTIME_AI_PROVIDER", None)
+)
 
 # === Modes ===
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -185,6 +201,18 @@ WAKE_WORD_PORCUPINE_KEYWORD_PATH = os.getenv(
 WAKE_WORD_PORCUPINE_SENSITIVITY = float(
     os.getenv("WAKE_WORD_PORCUPINE_SENSITIVITY", "0.20")
 )
+WAKE_WORD_OPENWAKEWORD_MODEL_PATH = os.getenv(
+    "WAKE_WORD_OPENWAKEWORD_MODEL_PATH", "hey_fish.onnx"
+).strip()
+WAKE_WORD_OPENWAKEWORD_THRESHOLD = float(
+    os.getenv("WAKE_WORD_OPENWAKEWORD_THRESHOLD", "0.5")
+)
+WAKE_WORD_OPENWAKEWORD_THRESHOLD = max(
+    0.0, min(1.0, WAKE_WORD_OPENWAKEWORD_THRESHOLD)
+)
+WAKE_WORD_OPENWAKEWORD_INFERENCE_FRAMEWORK = os.getenv(
+    "WAKE_WORD_OPENWAKEWORD_INFERENCE_FRAMEWORK", "onnx"
+).strip().lower()
 if TURN_EAGERNESS not in {"low", "medium", "high"}:
     TURN_EAGERNESS = "medium"
 

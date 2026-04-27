@@ -78,6 +78,7 @@ core/__pycache__/
 persona.ini
 versions.ini
 venv
+.venv
 webconfig/node_modules
 personas/
 !persona_presets/*/persona.ini

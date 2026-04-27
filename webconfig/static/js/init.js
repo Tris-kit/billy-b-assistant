@@ -54,6 +54,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     SettingsForm.handleSettingsSave();
     SettingsForm.saveDropdownSelections();
     SettingsForm.populateDropdowns(cfg);
+    SettingsForm.bindProviderUI();
     SettingsForm.initMouthArticulationSlider();
     SettingsForm.bindFactoryReset();
     SettingsForm.bindEnvEditorCard();

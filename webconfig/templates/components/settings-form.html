@@ -11,6 +11,35 @@
             </h3>
 
             <div class="mb-4 relative">
+                {% set provider = (config.get('REALTIME_AI_PROVIDER', 'openai')|lower) %}
+                <label for="REALTIME_AI_PROVIDER"
+                       class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                    AI Provider
+                    <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                          onclick="toggleTooltip(this)">
+                        help_outline
+                    </span>
+                </label>
+                <div class="relative">
+                    <div data-tooltip>
+                        Select which realtime backend Billy uses for live conversation.<br>
+                        Keep both API keys configured if you want to switch providers quickly.
+                    </div>
+                    <select id="REALTIME_AI_PROVIDER" name="REALTIME_AI_PROVIDER"
+                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                        <option value="openai"
+                                {% if provider in ['', 'openai'] %}selected{% endif %}>
+                            OpenAI Realtime
+                        </option>
+                        <option value="xai"
+                                {% if provider in ['xai', 'grok'] %}selected{% endif %}>
+                            Grok (xAI Realtime)
+                        </option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="mb-4 relative">
                 <label for="OPENAI_API_KEY"
                        class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
                     OpenAI API Key
@@ -47,7 +76,38 @@
                 </div>
             </div>
 
-            <div class="block mb-4">
+            <div class="mb-4 relative">
+                <label for="XAI_API_KEY"
+                       class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                    Grok API Key (xAI)
+                    <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                          onclick="toggleTooltip(this)">
+                        help_outline
+                    </span>
+                </label>
+                <div class="relative">
+                    <div data-tooltip>
+                        Get your key from <a href="https://console.x.ai/" class="underline hover:text-cyan-400" target="_blank">xAI Console</a> and paste it here to enable Grok.
+                    </div>
+                    <input
+                            type="password"
+                            class="w-full p-3 mt-1 pr-10 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                            id="XAI_API_KEY"
+                            name="XAI_API_KEY"
+                            value="{{ config.get('XAI_API_KEY', '') }}"
+                            placeholder="xai-..."
+                    >
+                    <button
+                            type="button"
+                            onclick="toggleInputVisibility('XAI_API_KEY', this)"
+                            class="absolute inset-y-0 right-0 flex items-center px-2 text-slate-400 hover:text-white cursor-pointer"
+                    >
+                        <span class="material-icons" id="XAI_API_KEY_icon">visibility</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="block mb-4" id="openai-model-block">
                 <label for="OPENAI_MODEL" class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
                     OpenAI Realtime API Model
                     <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
@@ -213,85 +273,141 @@
                     <label for="WAKE_WORD_BACKEND" class="block font-semibold text-sm text-slate-300">Backend</label>
                     <select id="WAKE_WORD_BACKEND" name="WAKE_WORD_BACKEND"
                             class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                        <option value="porcupine" {% if config.get('WAKE_WORD_BACKEND', 'porcupine') == 'porcupine' %}selected{% endif %}>Porcupine</option>
+                        <option value="openwakeword" {% if config.get('WAKE_WORD_BACKEND', 'openwakeword') == 'openwakeword' %}selected{% endif %}>openWakeWord</option>
+                        <option value="porcupine" {% if config.get('WAKE_WORD_BACKEND', 'openwakeword') == 'porcupine' %}selected{% endif %}>Porcupine</option>
                     </select>
                 </div>
 
-                <div class="relative" style="grid-column: 1 / -1;">
-                    <label for="PORCUPINE_ACCESS_KEY"
-                           class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
-                        Porcupine AccessKey
-                        <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
-                              data-tooltip-target="porcupine-accesskey-tooltip"
-                              onclick="toggleTooltip(this, event)">help_outline</span>
-                    </label>
-                    <div class="relative">
-                        <div id="porcupine-accesskey-tooltip" data-tooltip>
-                            Generate your AccessKey in the
-                            <a href="https://console.picovoice.ai/" target="_blank" class="underline hover:text-cyan-400">Picovoice Console</a>.<br>
-                            Picovoice signup may require linking/signing in with GitHub. If you do not have a GitHub account yet, create one for free at
-                            <a href="https://github.com/signup" target="_blank" class="underline hover:text-cyan-400">github.com/signup</a>.<br><br>
-                            Picovoice Porcupine is also free for 1-user personal use.<br>
-                            Sign in, open the AccessKey section, create a key, then paste it here.
+                <div id="wakeword-porcupine-settings" class="contents">
+                    <div class="relative" style="grid-column: 1 / -1;">
+                        <label for="PORCUPINE_ACCESS_KEY"
+                               class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                            Porcupine AccessKey
+                            <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                                  data-tooltip-target="porcupine-accesskey-tooltip"
+                                  onclick="toggleTooltip(this, event)">help_outline</span>
+                        </label>
+                        <div class="relative">
+                            <div id="porcupine-accesskey-tooltip" data-tooltip>
+                                Generate your AccessKey in the
+                                <a href="https://console.picovoice.ai/" target="_blank" class="underline hover:text-cyan-400">Picovoice Console</a>.<br>
+                                Picovoice signup may require linking/signing in with GitHub. If you do not have a GitHub account yet, create one for free at
+                                <a href="https://github.com/signup" target="_blank" class="underline hover:text-cyan-400">github.com/signup</a>.<br><br>
+                                Picovoice Porcupine is also free for 1-user personal use.<br>
+                                Sign in, open the AccessKey section, create a key, then paste it here.
+                            </div>
+                            <input type="password" id="PORCUPINE_ACCESS_KEY" name="PORCUPINE_ACCESS_KEY"
+                                   class="w-full p-3 mt-1 pr-10 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                   value="{{ config.get('PORCUPINE_ACCESS_KEY', '') }}"
+                                   placeholder="Required for Porcupine">
+                            <button
+                                    type="button"
+                                    onclick="toggleInputVisibility('PORCUPINE_ACCESS_KEY', this)"
+                                    class="absolute inset-y-0 right-0 flex items-center px-2 text-slate-400 hover:text-white cursor-pointer"
+                            >
+                                <span class="material-icons" id="PORCUPINE_ACCESS_KEY_icon">visibility</span>
+                            </button>
                         </div>
-                        <input type="password" id="PORCUPINE_ACCESS_KEY" name="PORCUPINE_ACCESS_KEY"
-                               class="w-full p-3 mt-1 pr-10 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                               value="{{ config.get('PORCUPINE_ACCESS_KEY', '') }}"
-                               placeholder="Required for Porcupine">
-                        <button
-                                type="button"
-                                onclick="toggleInputVisibility('PORCUPINE_ACCESS_KEY', this)"
-                                class="absolute inset-y-0 right-0 flex items-center px-2 text-slate-400 hover:text-white cursor-pointer"
-                        >
-                            <span class="material-icons" id="PORCUPINE_ACCESS_KEY_icon">visibility</span>
-                        </button>
+                    </div>
+
+                    <div>
+                        <label for="WAKE_WORD_PORCUPINE_KEYWORD_PATH"
+                               class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                            Porcupine keyword (.ppn) path
+                            <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                                  onclick="toggleTooltip(this)">help_outline</span>
+                        </label>
+                        <div class="relative">
+                            <div data-tooltip>
+                                Choose which Porcupine keyword model Billy should listen for.<br>
+                                The default is <b>hey-billy.ppn</b>.<br>
+                                You can generate your own custom wake-word in Picovoice, then upload the `.ppn` file below and select it here.
+                            </div>
+                        </div>
+                        {% set current_keyword_path = config.get('WAKE_WORD_PORCUPINE_KEYWORD_PATH', 'hey-billy.ppn') %}
+                        <select id="WAKE_WORD_PORCUPINE_KEYWORD_PATH" name="WAKE_WORD_PORCUPINE_KEYWORD_PATH"
+                                data-current="{{ current_keyword_path }}"
+                                class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            <option value="{{ current_keyword_path }}" selected>{{ current_keyword_path }}</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="WAKE_WORD_PORCUPINE_SENSITIVITY"
+                               class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                            Porcupine sensitivity (0-1)
+                            <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                                  onclick="toggleTooltip(this)">help_outline</span>
+                        </label>
+                        <div class="relative">
+                            <div data-tooltip>
+                                Controls how easily the wake-word triggers.<br>
+                                Lower values are stricter and reduce false triggers.<br>
+                                Higher values trigger more easily and may catch near-matches.<br>
+                                Recommended default: <b>0.20</b>.
+                            </div>
+                            <input type="number" min="0" max="1" step="0.01" id="WAKE_WORD_PORCUPINE_SENSITIVITY" name="WAKE_WORD_PORCUPINE_SENSITIVITY"
+                                   class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                   value="{{ config.get('WAKE_WORD_PORCUPINE_SENSITIVITY', '0.20') }}">
+                        </div>
                     </div>
                 </div>
 
-                <div>
-                    <label for="WAKE_WORD_PORCUPINE_KEYWORD_PATH"
-                           class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
-                        Porcupine keyword (.ppn) path
-                        <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
-                              onclick="toggleTooltip(this)">help_outline</span>
-                    </label>
-                    <div class="relative">
-                        <div data-tooltip>
-                            Choose which Porcupine keyword model Billy should listen for.<br>
-                            The default is <b>hey-billy.ppn</b>.<br>
-                            You can generate your own custom wake-word in Picovoice, then upload the `.ppn` file below and select it here.
+                <div id="wakeword-openwakeword-settings" class="contents">
+                    <div>
+                        <label for="WAKE_WORD_OPENWAKEWORD_MODEL_PATH"
+                               class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                            openWakeWord model path
+                            <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                                  onclick="toggleTooltip(this)">help_outline</span>
+                        </label>
+                        <div class="relative">
+                            <div data-tooltip>
+                                Select the model file Billy should listen for.<br>
+                                Supported formats are <b>.onnx</b> and <b>.tflite</b>.<br>
+                                Upload a model below and pick it here.
+                            </div>
+                        </div>
+                        {% set current_oww_model_path = config.get('WAKE_WORD_OPENWAKEWORD_MODEL_PATH', 'hey_fish.onnx') %}
+                        <select id="WAKE_WORD_OPENWAKEWORD_MODEL_PATH" name="WAKE_WORD_OPENWAKEWORD_MODEL_PATH"
+                                data-current="{{ current_oww_model_path }}"
+                                class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            <option value="{{ current_oww_model_path }}" selected>{{ current_oww_model_path }}</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="WAKE_WORD_OPENWAKEWORD_THRESHOLD"
+                               class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
+                            openWakeWord threshold (0-1)
+                            <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
+                                  onclick="toggleTooltip(this)">help_outline</span>
+                        </label>
+                        <div class="relative">
+                            <div data-tooltip>
+                                Minimum model score required to trigger.<br>
+                                Lower values trigger more easily (more false positives).<br>
+                                Recommended starting point: <b>0.50</b>.
+                            </div>
+                            <input type="number" min="0" max="1" step="0.01" id="WAKE_WORD_OPENWAKEWORD_THRESHOLD" name="WAKE_WORD_OPENWAKEWORD_THRESHOLD"
+                                   class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                   value="{{ config.get('WAKE_WORD_OPENWAKEWORD_THRESHOLD', '0.50') }}">
                         </div>
                     </div>
-                    {% set current_keyword_path = config.get('WAKE_WORD_PORCUPINE_KEYWORD_PATH', 'hey-billy.ppn') %}
-                    <select id="WAKE_WORD_PORCUPINE_KEYWORD_PATH" name="WAKE_WORD_PORCUPINE_KEYWORD_PATH"
-                            data-current="{{ current_keyword_path }}"
-                            class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                        <option value="{{ current_keyword_path }}" selected>{{ current_keyword_path }}</option>
-                    </select>
-                </div>
 
-                <div>
-                    <label for="WAKE_WORD_PORCUPINE_SENSITIVITY"
-                           class="flex justify-between items-center font-semibold text-sm text-slate-300 relative">
-                        Porcupine sensitivity (0-1)
-                        <span class="material-icons align-middle hover:text-cyan-400 cursor-pointer ml-1"
-                              onclick="toggleTooltip(this)">help_outline</span>
-                    </label>
-                    <div class="relative">
-                        <div data-tooltip>
-                            Controls how easily the wake-word triggers.<br>
-                            Lower values are stricter and reduce false triggers.<br>
-                            Higher values trigger more easily and may catch near-matches.<br>
-                            Recommended default: <b>0.20</b>.
-                        </div>
-                        <input type="number" min="0" max="1" step="0.01" id="WAKE_WORD_PORCUPINE_SENSITIVITY" name="WAKE_WORD_PORCUPINE_SENSITIVITY"
-                               class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                               value="{{ config.get('WAKE_WORD_PORCUPINE_SENSITIVITY', '0.20') }}">
+                    <div>
+                        <label for="WAKE_WORD_OPENWAKEWORD_INFERENCE_FRAMEWORK"
+                               class="block font-semibold text-sm text-slate-300">openWakeWord runtime</label>
+                        <select id="WAKE_WORD_OPENWAKEWORD_INFERENCE_FRAMEWORK" name="WAKE_WORD_OPENWAKEWORD_INFERENCE_FRAMEWORK"
+                                class="w-full p-3 mt-1 bg-zinc-800 text-white rounded focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                            <option value="onnx" {% if config.get('WAKE_WORD_OPENWAKEWORD_INFERENCE_FRAMEWORK', 'onnx') == 'onnx' %}selected{% endif %}>ONNX</option>
+                            <option value="tflite" {% if config.get('WAKE_WORD_OPENWAKEWORD_INFERENCE_FRAMEWORK') == 'tflite' %}selected{% endif %}>TFLite</option>
+                        </select>
                     </div>
                 </div>
             </div>
 
-            <div class="mt-3 p-3 rounded border border-zinc-700 bg-zinc-900/40">
+            <div id="wakeword-porcupine-upload" class="mt-3 p-3 rounded border border-zinc-700 bg-zinc-900/40">
                 <label for="wakeword-keyword-file" class="block font-semibold text-sm text-slate-300 mb-1">Porcupine keyword upload (.ppn)</label>
                 <div class="flex flex-wrap gap-2 items-center">
                     <input type="file" id="wakeword-keyword-file" accept=".ppn"
@@ -304,6 +420,22 @@
                 </div>
                 <div id="wakeword-keyword-status" class="text-xs text-slate-400 mt-2">
                     Default bundled keyword: <code>hey-billy.ppn</code>. Uploaded files are stored in <code>wakewords</code>.
+                </div>
+            </div>
+
+            <div id="wakeword-openwakeword-upload" class="mt-3 p-3 rounded border border-zinc-700 bg-zinc-900/40">
+                <label for="wakeword-openwakeword-model-file" class="block font-semibold text-sm text-slate-300 mb-1">openWakeWord model upload (.onnx / .tflite)</label>
+                <div class="flex flex-wrap gap-2 items-center">
+                    <input type="file" id="wakeword-openwakeword-model-file" accept=".onnx,.tflite"
+                           class="text-sm text-slate-300 file:mr-3 file:rounded file:border-0 file:bg-zinc-700 file:px-3 file:py-2 file:text-slate-100 hover:file:bg-zinc-600">
+                    <button type="button" id="wakeword-upload-openwakeword-model-btn"
+                            class="bg-zinc-800 hover:bg-zinc-700 text-white text-sm items-center px-3 py-2 rounded shadow flex gap-1.5 cursor-pointer">
+                        <span class="material-icons align-middle">upload_file</span>
+                        Upload Model
+                    </button>
+                </div>
+                <div id="wakeword-openwakeword-model-status" class="text-xs text-slate-400 mt-2">
+                    Uploaded files are stored in <code>wakewords</code>.
                 </div>
             </div>
         </div>

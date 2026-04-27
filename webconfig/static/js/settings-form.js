@@ -12,12 +12,64 @@ const SettingsForm = (() => {
         return MODEL_ALIASES[v] || v;
     };
 
+    const normalizeProviderValue = (value) => {
+        const provider = String(value || "").trim().toLowerCase();
+        if (!provider) return "openai";
+        return provider === "grok" ? "xai" : provider;
+    };
+
     const setSelectValueSafely = (element, value) => {
         if (!element || !value) return false;
         const exists = Array.from(element.options).some(opt => opt.value === value);
         if (!exists) return false;
         element.value = value;
         return true;
+    };
+
+    const applyProviderUI = (providerValue) => {
+        const provider = normalizeProviderValue(providerValue);
+        const modelBlock = document.getElementById("openai-model-block");
+        const modelSelect = document.getElementById("OPENAI_MODEL");
+        const usingOpenAI = provider === "openai";
+
+        if (modelBlock) {
+            modelBlock.classList.toggle("opacity-60", !usingOpenAI);
+        }
+        if (modelSelect) {
+            modelSelect.disabled = !usingOpenAI;
+            modelSelect.title = usingOpenAI
+                ? ""
+                : "OpenAI model is used only when provider is OpenAI.";
+        }
+    };
+
+    const applyVoiceOptions = (voices) => {
+        const voiceSelect = document.getElementById("VOICE");
+        if (!voiceSelect || !Array.isArray(voices) || voices.length === 0) return;
+
+        const currentValue = voiceSelect.value;
+        voiceSelect.innerHTML = "";
+
+        voices.forEach((voice) => {
+            const option = document.createElement("option");
+            option.value = voice;
+            option.textContent = voice.charAt(0).toUpperCase() + voice.slice(1);
+            voiceSelect.appendChild(option);
+        });
+
+        const selected = voices.includes(currentValue) ? currentValue : voices[0];
+        voiceSelect.value = selected;
+        localStorage.setItem("dropdown_VOICE", selected);
+    };
+
+    const bindProviderUI = () => {
+        const providerSelect = document.getElementById("REALTIME_AI_PROVIDER");
+        if (!providerSelect) return;
+
+        providerSelect.addEventListener("change", () => {
+            applyProviderUI(providerSelect.value);
+        });
+        applyProviderUI(providerSelect.value);
     };
 
     const getCameraSelectionFromConfig = (cfg) => {
@@ -121,6 +173,7 @@ const SettingsForm = (() => {
     const populateDropdowns = (cfg) => {
         // Populate dropdown values with saved configuration
         const dropdowns = [
+            { id: 'REALTIME_AI_PROVIDER', key: 'REALTIME_AI_PROVIDER' },
             { id: 'OPENAI_MODEL', key: 'OPENAI_MODEL' },
             { id: 'VOICE', key: 'VOICE' },
             { id: 'RUN_MODE', key: 'RUN_MODE' },
@@ -130,7 +183,11 @@ const SettingsForm = (() => {
             { id: 'BILLY_PINS_SELECT', key: 'BILLY_PINS' },
             { id: 'HA_LANG', key: 'HA_LANG' },
             { id: 'WAKE_WORD_ENABLED', key: 'WAKE_WORD_ENABLED' },
-            { id: 'WAKE_WORD_BACKEND', key: 'WAKE_WORD_BACKEND' }
+            { id: 'WAKE_WORD_BACKEND', key: 'WAKE_WORD_BACKEND' },
+            {
+                id: 'WAKE_WORD_OPENWAKEWORD_INFERENCE_FRAMEWORK',
+                key: 'WAKE_WORD_OPENWAKEWORD_INFERENCE_FRAMEWORK'
+            }
         ];
 
         dropdowns.forEach(({ id, key }) => {
@@ -145,8 +202,9 @@ const SettingsForm = (() => {
                 // Then fall back to config value
                 const configValue = cfg[key];
                 // For OPENAI_MODEL, prefer .env/config over localStorage.
-                const preferredValue = id === 'OPENAI_MODEL' ? configValue : (savedValue || configValue);
-                const fallbackValue = id === 'OPENAI_MODEL' ? savedValue : null;
+                const preferConfigValue = id === 'OPENAI_MODEL' || id === 'REALTIME_AI_PROVIDER';
+                const preferredValue = preferConfigValue ? configValue : (savedValue || configValue);
+                const fallbackValue = preferConfigValue ? savedValue : null;
 
                 if (id === 'OPENAI_MODEL') {
                     const normalizedPreferred = normalizeModelValue(preferredValue);
@@ -160,19 +218,41 @@ const SettingsForm = (() => {
                         // Clear stale localStorage when no matching option exists.
                         localStorage.removeItem(`dropdown_${id}`);
                     }
+                } else if (id === 'REALTIME_AI_PROVIDER') {
+                    const normalizedPreferred = normalizeProviderValue(preferredValue);
+                    const normalizedFallback = normalizeProviderValue(fallbackValue);
+
+                    if (setSelectValueSafely(element, normalizedPreferred)) {
+                        localStorage.setItem(`dropdown_${id}`, normalizedPreferred);
+                    } else if (setSelectValueSafely(element, normalizedFallback)) {
+                        localStorage.setItem(`dropdown_${id}`, normalizedFallback);
+                    } else {
+                        localStorage.removeItem(`dropdown_${id}`);
+                    }
                 } else if (preferredValue) {
                     setSelectValueSafely(element, preferredValue);
                 }
             }
         });
+        applyProviderUI(document.getElementById("REALTIME_AI_PROVIDER")?.value);
+        const wakeBackend = document.getElementById("WAKE_WORD_BACKEND");
+        const wakeEnabled = document.getElementById("WAKE_WORD_ENABLED");
+        if (wakeBackend) {
+            wakeBackend.dispatchEvent(new Event("change"));
+        }
+        if (wakeEnabled) {
+            wakeEnabled.dispatchEvent(new Event("change"));
+        }
     };
 
     const saveDropdownSelections = () => {
         // Save dropdown selections to localStorage when they change
         const dropdowns = [
+            'REALTIME_AI_PROVIDER',
             'OPENAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
             'BILLY_MODEL', 'CAMERA_HARDWARE', 'BILLY_PINS_SELECT', 'HA_LANG',
-            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND'
+            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND',
+            'WAKE_WORD_OPENWAKEWORD_INFERENCE_FRAMEWORK'
         ];
 
         dropdowns.forEach(id => {
@@ -280,22 +360,37 @@ const SettingsForm = (() => {
                     if (refreshData.config) {
                         // Update dropdowns with new values
                         const dropdowns = [
+                            'REALTIME_AI_PROVIDER',
                             'OPENAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
                             'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG',
-                            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND'
+                            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND',
+                            'WAKE_WORD_OPENWAKEWORD_INFERENCE_FRAMEWORK'
                         ];
                         dropdowns.forEach(id => {
                             const element = document.getElementById(id);
                             if (element && refreshData.config[id]) {
-                                const value = id === 'OPENAI_MODEL'
-                                    ? normalizeModelValue(refreshData.config[id])
-                                    : refreshData.config[id];
+                                let value = refreshData.config[id];
+                                if (id === 'OPENAI_MODEL') {
+                                    value = normalizeModelValue(value);
+                                } else if (id === 'REALTIME_AI_PROVIDER') {
+                                    value = normalizeProviderValue(value);
+                                }
                                 if (setSelectValueSafely(element, value)) {
                                     localStorage.setItem(`dropdown_${id}`, value);
                                 }
                             }
                         });
+                        applyProviderUI(refreshData.config.REALTIME_AI_PROVIDER);
+                        applyVoiceOptions(refreshData.config.VOICE_OPTIONS);
                         await populateCameraHardwareDropdown(refreshData.config);
+                        const wakeBackend = document.getElementById("WAKE_WORD_BACKEND");
+                        const wakeEnabled = document.getElementById("WAKE_WORD_ENABLED");
+                        if (wakeBackend) {
+                            wakeBackend.dispatchEvent(new Event("change"));
+                        }
+                        if (wakeEnabled) {
+                            wakeEnabled.dispatchEvent(new Event("change"));
+                        }
                         
                         // Refresh user profile panel if it exists
                         if (window.UserProfilePanel && window.UserProfilePanel.refreshUserProfile) {
@@ -315,9 +410,12 @@ const SettingsForm = (() => {
                 showNotification("Settings saved – Billy restarted", "success");
             }
 
-            if (saveResult.audio_restart_required) {
+            if (saveResult.audio_restart_required || saveResult.service_restart_required) {
                 await fetch("/restart-billy", {method: "POST"});
-                showNotification("Audio settings changed – Billy restarted", "success");
+                const restartReason = saveResult.audio_restart_required
+                    ? "Audio settings changed"
+                    : "AI provider settings changed";
+                showNotification(`${restartReason} – Billy restarted`, "success");
             }
 
             if (portChanged || hostnameChanged) {
@@ -560,33 +658,102 @@ const SettingsForm = (() => {
     const refreshFromConfig = (config) => {
         // Update dropdowns with new configuration values
         const dropdowns = [
+            'REALTIME_AI_PROVIDER',
             'OPENAI_MODEL', 'VOICE', 'RUN_MODE', 'TURN_EAGERNESS',
             'BILLY_MODEL', 'BILLY_PINS_SELECT', 'HA_LANG',
-            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND'
+            'WAKE_WORD_ENABLED', 'WAKE_WORD_BACKEND',
+            'WAKE_WORD_OPENWAKEWORD_INFERENCE_FRAMEWORK'
         ];
         dropdowns.forEach(id => {
             const element = document.getElementById(id);
             if (element && config[id]) {
-                element.value = config[id];
-                localStorage.setItem(`dropdown_${id}`, config[id]);
+                let value = config[id];
+                if (id === "OPENAI_MODEL") {
+                    value = normalizeModelValue(value);
+                } else if (id === "REALTIME_AI_PROVIDER") {
+                    value = normalizeProviderValue(value);
+                }
+                if (setSelectValueSafely(element, value)) {
+                    localStorage.setItem(`dropdown_${id}`, value);
+                }
             }
         });
+        applyProviderUI(config.REALTIME_AI_PROVIDER);
+        applyVoiceOptions(config.VOICE_OPTIONS);
         populateCameraHardwareDropdown(config);
+        const wakeBackend = document.getElementById("WAKE_WORD_BACKEND");
+        const wakeEnabled = document.getElementById("WAKE_WORD_ENABLED");
+        if (wakeBackend) {
+            wakeBackend.dispatchEvent(new Event("change"));
+        }
+        if (wakeEnabled) {
+            wakeEnabled.dispatchEvent(new Event("change"));
+        }
     };
 
     const bindWakeWordKeywordUpload = () => {
-        const uploadBtn = document.getElementById("wakeword-upload-keyword-btn");
-        const fileInput = document.getElementById("wakeword-keyword-file");
-        const status = document.getElementById("wakeword-keyword-status");
-        const keywordPathInput = document.getElementById("WAKE_WORD_PORCUPINE_KEYWORD_PATH");
+        const wakeWordEnabledSelect = document.getElementById("WAKE_WORD_ENABLED");
         const backendSelect = document.getElementById("WAKE_WORD_BACKEND");
-        if (!uploadBtn || !fileInput || !keywordPathInput) return;
+        const porcupineSettings = document.getElementById("wakeword-porcupine-settings");
+        const porcupineUpload = document.getElementById("wakeword-porcupine-upload");
+        const openWakeWordSettings = document.getElementById("wakeword-openwakeword-settings");
+        const openWakeWordUpload = document.getElementById("wakeword-openwakeword-upload");
 
-        const normalizeKeywordName = (value) => {
+        const porcupineUploadBtn = document.getElementById("wakeword-upload-keyword-btn");
+        const porcupineFileInput = document.getElementById("wakeword-keyword-file");
+        const porcupineStatus = document.getElementById("wakeword-keyword-status");
+        const porcupineKeywordPathInput = document.getElementById("WAKE_WORD_PORCUPINE_KEYWORD_PATH");
+
+        const openWakeWordUploadBtn = document.getElementById("wakeword-upload-openwakeword-model-btn");
+        const openWakeWordFileInput = document.getElementById("wakeword-openwakeword-model-file");
+        const openWakeWordStatus = document.getElementById("wakeword-openwakeword-model-status");
+        const openWakeWordModelPathInput = document.getElementById("WAKE_WORD_OPENWAKEWORD_MODEL_PATH");
+        const openWakeWordFrameworkSelect = document.getElementById("WAKE_WORD_OPENWAKEWORD_INFERENCE_FRAMEWORK");
+
+        if (!backendSelect || !porcupineKeywordPathInput || !openWakeWordModelPathInput) {
+            return;
+        }
+
+        const normalizeName = (value) => {
             const raw = String(value || "").trim();
             if (!raw) return "";
             const parts = raw.split(/[\\/]/);
             return parts[parts.length - 1] || raw;
+        };
+
+        const setSectionVisible = (element, visible) => {
+            if (!element) return;
+            if (visible) {
+                element.classList.remove("hidden");
+            } else {
+                element.classList.add("hidden");
+            }
+        };
+
+        const applyWakeWordSectionVisibility = () => {
+            const enabled = String(wakeWordEnabledSelect?.value || "false") === "true";
+            const backend = String(backendSelect.value || "openwakeword").toLowerCase();
+            const showPorcupine = enabled && backend === "porcupine";
+            const showOpenWakeWord = enabled && backend === "openwakeword";
+
+            setSectionVisible(porcupineSettings, showPorcupine);
+            setSectionVisible(porcupineUpload, showPorcupine);
+            setSectionVisible(openWakeWordSettings, showOpenWakeWord);
+            setSectionVisible(openWakeWordUpload, showOpenWakeWord);
+        };
+
+        const fillSelectOptions = (selectElement, options, currentValue) => {
+            const merged = [...new Set([...(options || []), currentValue].filter(Boolean))];
+            selectElement.innerHTML = "";
+            merged.forEach((name) => {
+                const opt = document.createElement("option");
+                opt.value = name;
+                opt.textContent = name;
+                selectElement.appendChild(opt);
+            });
+            if (currentValue && merged.includes(currentValue)) {
+                selectElement.value = currentValue;
+            }
         };
 
         const loadWakeWordKeywordOptions = async (preferredPath = null) => {
@@ -594,85 +761,161 @@ const SettingsForm = (() => {
                 const response = await fetch("/wakeword/keywords");
                 const data = await response.json();
                 const options = Array.isArray(data.keywords)
-                    ? data.keywords.map(normalizeKeywordName).filter(Boolean)
+                    ? data.keywords.map(normalizeName).filter(Boolean)
                     : [];
-                const currentValue = normalizeKeywordName(
-                    preferredPath || keywordPathInput.value || keywordPathInput.dataset.current || ""
+                const currentValue = normalizeName(
+                    preferredPath || porcupineKeywordPathInput.value || porcupineKeywordPathInput.dataset.current || ""
                 );
-                const merged = [...new Set([...options, currentValue].filter(Boolean))];
-                keywordPathInput.innerHTML = "";
-                merged.forEach((name) => {
-                    const opt = document.createElement("option");
-                    opt.value = name;
-                    opt.textContent = name;
-                    keywordPathInput.appendChild(opt);
-                });
-                if (currentValue && merged.includes(currentValue)) {
-                    keywordPathInput.value = currentValue;
-                }
+                fillSelectOptions(porcupineKeywordPathInput, options, currentValue);
             } catch (error) {
                 console.error("Failed to load wake-word keywords:", error);
             }
         };
 
-        loadWakeWordKeywordOptions();
-
-        uploadBtn.addEventListener("click", async () => {
-            const file = fileInput.files && fileInput.files[0];
-            if (!file) {
-                showNotification("Select a .ppn file first", "warning", 3000);
-                return;
-            }
-            if (!file.name.toLowerCase().endsWith(".ppn")) {
-                showNotification("Only .ppn files are supported", "warning", 3000);
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append("keyword_file", file);
-
-            uploadBtn.disabled = true;
-            uploadBtn.classList.add("opacity-50", "cursor-not-allowed");
-            if (status) {
-                status.textContent = `Uploading ${file.name}...`;
-            }
+        const loadOpenWakeWordModelOptions = async (preferredPath = null) => {
             try {
-                const response = await fetch("/wakeword/keyword/upload", {
-                    method: "POST",
-                    body: formData,
-                });
+                const response = await fetch("/wakeword/openwakeword-models");
                 const data = await response.json();
-                if (!response.ok) {
-                    const errorMessage = data.error || "Upload failed";
-                    console.error("Wake-word keyword upload failed:", errorMessage);
-                    if (status) {
-                        status.textContent = `Upload failed: ${errorMessage}`;
-                    }
-                    showNotification(`Keyword upload failed: ${errorMessage}`, "error", 5000);
+                const options = Array.isArray(data.models)
+                    ? data.models.map(normalizeName).filter(Boolean)
+                    : [];
+                const currentValue = normalizeName(
+                    preferredPath || openWakeWordModelPathInput.value || openWakeWordModelPathInput.dataset.current || ""
+                );
+                fillSelectOptions(openWakeWordModelPathInput, options, currentValue);
+            } catch (error) {
+                console.error("Failed to load openWakeWord models:", error);
+            }
+        };
+
+        loadWakeWordKeywordOptions();
+        loadOpenWakeWordModelOptions();
+        applyWakeWordSectionVisibility();
+
+        backendSelect.addEventListener("change", applyWakeWordSectionVisibility);
+        if (wakeWordEnabledSelect) {
+            wakeWordEnabledSelect.addEventListener("change", applyWakeWordSectionVisibility);
+        }
+
+        if (porcupineUploadBtn && porcupineFileInput) {
+            porcupineUploadBtn.addEventListener("click", async () => {
+                const file = porcupineFileInput.files && porcupineFileInput.files[0];
+                if (!file) {
+                    showNotification("Select a .ppn file first", "warning", 3000);
                     return;
                 }
-                if (keywordPathInput && data.keyword_path) {
-                    await loadWakeWordKeywordOptions(data.keyword_path);
+                if (!file.name.toLowerCase().endsWith(".ppn")) {
+                    showNotification("Only .ppn files are supported", "warning", 3000);
+                    return;
                 }
-                if (backendSelect) {
+
+                const formData = new FormData();
+                formData.append("keyword_file", file);
+
+                porcupineUploadBtn.disabled = true;
+                porcupineUploadBtn.classList.add("opacity-50", "cursor-not-allowed");
+                if (porcupineStatus) {
+                    porcupineStatus.textContent = `Uploading ${file.name}...`;
+                }
+                try {
+                    const response = await fetch("/wakeword/keyword/upload", {
+                        method: "POST",
+                        body: formData,
+                    });
+                    const data = await response.json();
+                    if (!response.ok) {
+                        const errorMessage = data.error || "Upload failed";
+                        if (porcupineStatus) {
+                            porcupineStatus.textContent = `Upload failed: ${errorMessage}`;
+                        }
+                        showNotification(`Keyword upload failed: ${errorMessage}`, "error", 5000);
+                        return;
+                    }
+
+                    if (data.keyword_path) {
+                        await loadWakeWordKeywordOptions(data.keyword_path);
+                    }
                     backendSelect.value = "porcupine";
+                    applyWakeWordSectionVisibility();
+                    if (porcupineStatus) {
+                        porcupineStatus.textContent = `Keyword uploaded: ${data.keyword_path}`;
+                    }
+                    porcupineFileInput.value = "";
+                    showNotification("Porcupine keyword uploaded", "success", 3000);
+                } catch (error) {
+                    if (porcupineStatus) {
+                        porcupineStatus.textContent = `Upload failed: ${error.message}`;
+                    }
+                    showNotification(`Keyword upload failed: ${error.message}`, "error", 5000);
+                } finally {
+                    porcupineUploadBtn.disabled = false;
+                    porcupineUploadBtn.classList.remove("opacity-50", "cursor-not-allowed");
                 }
-                if (status) {
-                    status.textContent = `Keyword uploaded: ${data.keyword_path}`;
+            });
+        }
+
+        if (openWakeWordUploadBtn && openWakeWordFileInput) {
+            openWakeWordUploadBtn.addEventListener("click", async () => {
+                const file = openWakeWordFileInput.files && openWakeWordFileInput.files[0];
+                if (!file) {
+                    showNotification("Select an .onnx or .tflite file first", "warning", 3000);
+                    return;
                 }
-                fileInput.value = "";
-                showNotification("Porcupine keyword uploaded", "success", 3000);
-            } catch (error) {
-                console.error("Wake-word keyword upload failed:", error);
-                if (status) {
-                    status.textContent = `Upload failed: ${error.message}`;
+                const lowerName = file.name.toLowerCase();
+                if (!(lowerName.endsWith(".onnx") || lowerName.endsWith(".tflite"))) {
+                    showNotification("Only .onnx and .tflite files are supported", "warning", 3000);
+                    return;
                 }
-                showNotification(`Keyword upload failed: ${error.message}`, "error", 5000);
-            } finally {
-                uploadBtn.disabled = false;
-                uploadBtn.classList.remove("opacity-50", "cursor-not-allowed");
-            }
-        });
+
+                const formData = new FormData();
+                formData.append("model_file", file);
+
+                openWakeWordUploadBtn.disabled = true;
+                openWakeWordUploadBtn.classList.add("opacity-50", "cursor-not-allowed");
+                if (openWakeWordStatus) {
+                    openWakeWordStatus.textContent = `Uploading ${file.name}...`;
+                }
+                try {
+                    const response = await fetch("/wakeword/openwakeword-model/upload", {
+                        method: "POST",
+                        body: formData,
+                    });
+                    const data = await response.json();
+                    if (!response.ok) {
+                        const errorMessage = data.error || "Upload failed";
+                        if (openWakeWordStatus) {
+                            openWakeWordStatus.textContent = `Upload failed: ${errorMessage}`;
+                        }
+                        showNotification(`Model upload failed: ${errorMessage}`, "error", 5000);
+                        return;
+                    }
+
+                    if (data.model_path) {
+                        await loadOpenWakeWordModelOptions(data.model_path);
+                    }
+                    if (openWakeWordFrameworkSelect) {
+                        openWakeWordFrameworkSelect.value = lowerName.endsWith(".tflite")
+                            ? "tflite"
+                            : "onnx";
+                    }
+                    backendSelect.value = "openwakeword";
+                    applyWakeWordSectionVisibility();
+                    if (openWakeWordStatus) {
+                        openWakeWordStatus.textContent = `Model uploaded: ${data.model_path}`;
+                    }
+                    openWakeWordFileInput.value = "";
+                    showNotification("openWakeWord model uploaded", "success", 3000);
+                } catch (error) {
+                    if (openWakeWordStatus) {
+                        openWakeWordStatus.textContent = `Upload failed: ${error.message}`;
+                    }
+                    showNotification(`Model upload failed: ${error.message}`, "error", 5000);
+                } finally {
+                    openWakeWordUploadBtn.disabled = false;
+                    openWakeWordUploadBtn.classList.remove("opacity-50", "cursor-not-allowed");
+                }
+            });
+        }
     };
 
     const NEWS_SOURCE_TEMPLATES = {
@@ -1030,6 +1273,7 @@ const SettingsForm = (() => {
         bindEnvEditorCard,
         bindNewsSources,
         bindWakeWordKeywordUpload,
+        bindProviderUI,
     };
 })();
 
