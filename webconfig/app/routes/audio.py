@@ -24,8 +24,8 @@ mic_check_running = False
 rms_queue = queue.Queue()
 
 
-def _is_usb_audio_device_name(name: str) -> bool:
-    """Heuristic: keep only real USB audio endpoints, skip virtual ALSA PCMs."""
+def _is_selectable_audio_device_name(name: str) -> bool:
+    """Keep real hardware endpoints (USB, Bluetooth, built-in) and skip virtual PCMs."""
     lowered = (name or "").strip().lower()
     if not lowered:
         return False
@@ -38,12 +38,53 @@ def _is_usb_audio_device_name(name: str) -> bool:
         "surround",
         "iec958",
         "pulse",
-        "pipewire",
         "jack",
     )
     if any(token in lowered for token in virtual_tokens):
         return False
-    return "usb" in lowered
+    return True
+
+
+def _audio_runtime_env() -> dict[str, str]:
+    env = dict(os.environ)
+    if not env.get("XDG_RUNTIME_DIR"):
+        env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
+    return env
+
+
+def _list_pipewire_sinks() -> tuple[list[dict[str, str]], str]:
+    env = _audio_runtime_env()
+    output = subprocess.check_output(
+        ["pactl", "list", "short", "sinks"],
+        text=True,
+        env=env,
+    )
+    sinks: list[dict[str, str]] = []
+    for line in output.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        sink_id = parts[0].strip()
+        sink_name = parts[1].strip()
+        state = parts[4].strip() if len(parts) > 4 else ""
+        sinks.append({
+            "id": sink_id,
+            "name": sink_name,
+            "label": sink_name,
+            "state": state,
+        })
+    try:
+        default_sink = subprocess.check_output(
+            ["pactl", "get-default-sink"],
+            text=True,
+            env=env,
+        ).strip()
+    except Exception:
+        default_sink = ""
+    return sinks, default_sink
 
 
 def _normalize_audio_preference(value: str) -> str:
@@ -245,7 +286,7 @@ def audio_devices():
             name = str(dev.get("name", "")).strip()
             if not name:
                 continue
-            if not _is_usb_audio_device_name(name):
+            if not _is_selectable_audio_device_name(name):
                 continue
             preference_value = _preference_from_device_name(name)
             card_index = _parse_hw_card_index(name)
