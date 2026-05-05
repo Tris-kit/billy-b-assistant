@@ -11,6 +11,7 @@ Usage:
 
 from __future__ import annotations
 
+import array
 import argparse
 import asyncio
 import base64
@@ -19,14 +20,8 @@ import os
 import sys
 from typing import Any
 
-import numpy as np
 import sounddevice as sd
 import websockets.asyncio.client
-
-try:
-    from scipy.signal import resample
-except Exception:  # pragma: no cover - fallback when scipy is unavailable
-    resample = None
 
 
 API_SAMPLE_RATE = 24000
@@ -41,22 +36,41 @@ def _resample_pcm16_mono(chunk: bytes, src_rate: int, dst_rate: int) -> bytes:
     if src_rate == dst_rate or not chunk:
         return chunk
 
-    samples = np.frombuffer(chunk, dtype=np.int16)
-    if samples.size == 0:
+    samples = array.array("h")
+    samples.frombytes(chunk)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    src_len = len(samples)
+    if src_len == 0:
         return b""
 
-    target_len = max(1, int(round(samples.size * dst_rate / src_rate)))
-    samples_f32 = samples.astype(np.float32)
-    if resample is not None:
-        out = resample(samples_f32, target_len)
+    target_len = max(1, int(round(src_len * dst_rate / src_rate)))
+    out = array.array("h", [0]) * target_len
+    if src_len == 1 or target_len == 1:
+        sample = samples[0]
+        for i in range(target_len):
+            out[i] = sample
     else:
-        # Fallback linear resample if scipy is not available in the environment.
-        src_x = np.arange(samples_f32.size, dtype=np.float32)
-        dst_x = np.linspace(0.0, samples_f32.size - 1, target_len, dtype=np.float32)
-        out = np.interp(dst_x, src_x, samples_f32)
+        scale = (src_len - 1) / float(target_len - 1)
+        for i in range(target_len):
+            pos = i * scale
+            left = int(pos)
+            frac = pos - left
+            if left >= src_len - 1:
+                value = samples[src_len - 1]
+            else:
+                s0 = samples[left]
+                s1 = samples[left + 1]
+                value = int(round((1.0 - frac) * s0 + frac * s1))
+            if value < -32768:
+                value = -32768
+            elif value > 32767:
+                value = 32767
+            out[i] = value
 
-    out_i16 = np.clip(np.rint(out), -32768, 32767).astype(np.int16)
-    return out_i16.tobytes()
+    if sys.byteorder != "little":
+        out.byteswap()
+    return out.tobytes()
 
 
 def _parse_device(value: str) -> int | str | None:
