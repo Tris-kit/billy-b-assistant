@@ -1,5 +1,6 @@
 import json
 from typing import Any, Optional
+from urllib.parse import quote
 
 from ..realtime_ai_provider import RealtimeAIProvider
 
@@ -8,23 +9,26 @@ class XAIProvider(RealtimeAIProvider):
     def __init__(
         self,
         api_key: str,
+        model: str = "grok-voice-think-fast-1.0",
         voice: Optional[str] = None,
     ):
         self.api_key = api_key
-        if voice and voice in self.get_supported_voices():
-            self.voice = voice
+        self.model = (model or "grok-voice-think-fast-1.0").strip()
+        normalized_voice = (voice or "").strip().lower()
+        if normalized_voice and normalized_voice in self.get_supported_voices():
+            self.voice = normalized_voice
         else:
             self.voice = self.default_voice
 
     @property
     def default_voice(self) -> str:
-        return "Rex"
+        return "rex"
 
     def _get_websocket_uri(self) -> str:
-        return "wss://api.x.ai/v1/realtime"
+        return f"wss://api.x.ai/v1/realtime?model={quote(self.model, safe='')}"
 
     def get_supported_voices(self) -> list[str]:
-        return ["Ara", "Rex", "Sal", "Eve", "Leo"]
+        return ["ara", "rex", "sal", "eve", "leo"]
 
     def get_provider_name(self) -> str:
         return "xai"
@@ -36,8 +40,9 @@ class XAIProvider(RealtimeAIProvider):
         instructions: Optional[str] = None,
         **kwargs,
     ) -> bytes:
-        if voice is None:
-            voice = self.default_voice
+        normalized_voice = (voice or self.default_voice).strip().lower()
+        if normalized_voice not in self.get_supported_voices():
+            normalized_voice = self.default_voice
 
         # Reserve kwargs for future use
         _ = kwargs
@@ -53,7 +58,7 @@ class XAIProvider(RealtimeAIProvider):
                 json.dumps({
                     "type": "session.update",
                     "session": {
-                        "voice": voice,
+                        "voice": normalized_voice,
                         "instructions": session_instructions,
                         "audio": {
                             "input": {
@@ -107,7 +112,7 @@ class XAIProvider(RealtimeAIProvider):
     ) -> dict[str, Any]:
         server_vad_params = kwargs.get("server_vad_params", {})
         text_only_mode = kwargs.get("text_only_mode", False)
-        requested_voice = kwargs.get("voice", self.default_voice)
+        requested_voice = str(kwargs.get("voice", self.default_voice)).strip().lower()
         # Validate voice is supported, otherwise use default
         voice = (
             requested_voice

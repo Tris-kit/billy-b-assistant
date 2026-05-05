@@ -7,7 +7,13 @@ from ..wakeword_provider import wakeword_provider_registry
 
 logger.verbose("Importing core.providers")
 # Register realtime AI providers
-from ..config import OPENAI_API_KEY, OPENAI_MODEL, REALTIME_AI_PROVIDER, XAI_API_KEY
+from ..config import (
+    OPENAI_API_KEY,
+    OPENAI_MODEL,
+    REALTIME_AI_PROVIDER,
+    XAI_API_KEY,
+    XAI_MODEL,
+)
 from ..realtime_ai_provider import voice_provider_registry
 from .openai_provider import OpenAIProvider
 from .openwakeword_wakeword_provider import OpenWakeWordBackend
@@ -24,7 +30,7 @@ if OPENAI_API_KEY:
     voice_provider_registry.register_provider(openai_provider)
 
 if XAI_API_KEY:
-    xai_provider = XAIProvider(api_key=XAI_API_KEY)
+    xai_provider = XAIProvider(api_key=XAI_API_KEY, model=XAI_MODEL)
     voice_provider_registry.register_provider(xai_provider)
 
 # Set the default provider based on configuration

@@ -157,6 +157,7 @@ def get_tool_instructions(model: str | None = None) -> str:
 
 # === XAI Config ===
 XAI_API_KEY = os.getenv("XAI_API_KEY", "")
+XAI_MODEL = os.getenv("XAI_MODEL", "grok-voice-think-fast-1.0").strip()
 
 
 def _normalize_realtime_provider(value: str | None) -> str | None:
