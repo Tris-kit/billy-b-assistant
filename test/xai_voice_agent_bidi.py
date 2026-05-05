@@ -11,7 +11,6 @@ Usage:
 
 from __future__ import annotations
 
-import audioop
 import argparse
 import asyncio
 import base64
@@ -20,8 +19,14 @@ import os
 import sys
 from typing import Any
 
+import numpy as np
 import sounddevice as sd
 import websockets.asyncio.client
+
+try:
+    from scipy.signal import resample
+except Exception:  # pragma: no cover - fallback when scipy is unavailable
+    resample = None
 
 
 API_SAMPLE_RATE = 24000
@@ -30,6 +35,28 @@ FRAME_MS = 40
 DEFAULT_MODEL = "grok-voice-think-fast-1.0"
 DEFAULT_VOICE = "rex"
 PREFERRED_SAMPLE_RATES = (24000, 48000, 44100, 32000, 22050, 16000, 8000)
+
+
+def _resample_pcm16_mono(chunk: bytes, src_rate: int, dst_rate: int) -> bytes:
+    if src_rate == dst_rate or not chunk:
+        return chunk
+
+    samples = np.frombuffer(chunk, dtype=np.int16)
+    if samples.size == 0:
+        return b""
+
+    target_len = max(1, int(round(samples.size * dst_rate / src_rate)))
+    samples_f32 = samples.astype(np.float32)
+    if resample is not None:
+        out = resample(samples_f32, target_len)
+    else:
+        # Fallback linear resample if scipy is not available in the environment.
+        src_x = np.arange(samples_f32.size, dtype=np.float32)
+        dst_x = np.linspace(0.0, samples_f32.size - 1, target_len, dtype=np.float32)
+        out = np.interp(dst_x, src_x, samples_f32)
+
+    out_i16 = np.clip(np.rint(out), -32768, 32767).astype(np.int16)
+    return out_i16.tobytes()
 
 
 def _parse_device(value: str) -> int | str | None:
@@ -185,29 +212,19 @@ async def run_bidi_session(args: argparse.Namespace) -> int:
     audio_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=64)
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
-    mic_rate_state = None
-    speaker_rate_state = None
 
     def request_stop() -> None:
         if not stop_event.is_set():
             stop_event.set()
 
     def mic_callback(indata, frames, time_info, status) -> None:
-        nonlocal mic_rate_state
         del frames, time_info
         if status:
             print(f"[mic] {status}", file=sys.stderr)
 
         chunk = bytes(indata)
         if input_rate != API_SAMPLE_RATE:
-            chunk, mic_rate_state = audioop.ratecv(
-                chunk,
-                2,
-                CHANNELS,
-                input_rate,
-                API_SAMPLE_RATE,
-                mic_rate_state,
-            )
+            chunk = _resample_pcm16_mono(chunk, input_rate, API_SAMPLE_RATE)
         if not chunk:
             return
 
@@ -237,7 +254,6 @@ async def run_bidi_session(args: argparse.Namespace) -> int:
             await ws.send(json.dumps(payload))
 
     async def receiver(ws, speaker_stream: sd.RawOutputStream) -> None:
-        nonlocal speaker_rate_state
         async for message in ws:
             event = json.loads(message)
             event_type = str(event.get("type", ""))
@@ -247,14 +263,7 @@ async def run_bidi_session(args: argparse.Namespace) -> int:
                 if isinstance(delta, str) and delta:
                     pcm = base64.b64decode(delta)
                     if output_rate != API_SAMPLE_RATE:
-                        pcm, speaker_rate_state = audioop.ratecv(
-                            pcm,
-                            2,
-                            CHANNELS,
-                            API_SAMPLE_RATE,
-                            output_rate,
-                            speaker_rate_state,
-                        )
+                        pcm = _resample_pcm16_mono(pcm, API_SAMPLE_RATE, output_rate)
                     if pcm:
                         speaker_stream.write(pcm)
             elif event_type in {"response.output_text.delta", "response.text.delta"}:
