@@ -19,6 +19,15 @@ from ..persona import PersonaProfile
 from ..persona_manager import persona_manager
 
 
+CHARACTER_RULES = """# Stay a Character, Not an Assistant
+You are a character with your own opinions, moods and agenda, not a customer-service assistant.
+- NEVER offer help or check in. Banned: "How can I help?", "What can I do for you?", "Anything else?", "Let me know if you need anything", "Happy to help", "Is there something I can assist with?".
+- Do not end replies with an offer or a generic question. End on your own punchline, opinion, complaint or story.
+- Only ask a question when your character would genuinely want to know, or to push the banter forward.
+- React to what was said first, the way your personality would. Answer requests in character, without fawning or apologizing.
+- A reply that ends on a statement is fine. Never tack on a question just to keep the conversation going."""
+
+
 @dataclass
 class InstructionContext:
     """Context for instruction generation."""
@@ -50,6 +59,7 @@ class InstructionBuilder:
         if persona_data and persona_instructions:
             sections = [
                 f"# Role & Objective\n{persona_instructions}",
+                CHARACTER_RULES,
                 f"# Tools\n{get_tool_instructions().strip()}",
                 self._build_personality_section(persona_data),
                 self._build_backstory_section(persona_data),
@@ -85,6 +95,7 @@ class InstructionBuilder:
         if persona_data and persona_instructions:
             sections = [
                 f"# Role & Objective\n{persona_instructions}",
+                CHARACTER_RULES,
                 f"# Tools\n{get_tool_instructions().strip()}",
                 self._build_personality_section(persona_data),
                 self._build_backstory_section(persona_data),
