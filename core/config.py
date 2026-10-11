@@ -172,6 +172,10 @@ RUN_MODE = os.getenv("RUN_MODE", "normal").lower()
 # === Billy Hardware ===
 BILLY_MODEL = os.getenv("BILLY_MODEL", "modern").strip().lower()
 BILLY_PINS = os.getenv("BILLY_PINS", "new").strip().lower()
+# Optional per-motor BCM GPIO overrides for non-standard wiring (blank = use BILLY_PINS profile)
+MOTOR_HEAD_PIN = os.getenv("MOTOR_HEAD_PIN", "").strip()
+MOTOR_MOUTH_PIN = os.getenv("MOTOR_MOUTH_PIN", "").strip()
+MOTOR_TAIL_PIN = os.getenv("MOTOR_TAIL_PIN", "").strip()
 
 # === Audio Config ===
 SPEAKER_PREFERENCE = os.getenv("SPEAKER_PREFERENCE")

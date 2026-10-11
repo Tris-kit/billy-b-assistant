@@ -10,7 +10,15 @@ from threading import Lock, Thread
 
 import numpy as np
 
-from .config import BILLY_PINS, MOCKFISH, MOUTH_BOOST, is_classic_billy
+from .config import (
+    BILLY_PINS,
+    MOCKFISH,
+    MOTOR_HEAD_PIN,
+    MOTOR_MOUTH_PIN,
+    MOTOR_TAIL_PIN,
+    MOUTH_BOOST,
+    is_classic_billy,
+)
 from .logger import logger
 
 
@@ -90,6 +98,13 @@ else:
     HEAD = 22  # pin 15
     MOUTH = 17  # pin 11
     TAIL = 27  # pin 13
+
+# Per-motor overrides from .env for custom wiring
+HEAD = int(MOTOR_HEAD_PIN) if MOTOR_HEAD_PIN else HEAD
+MOUTH = int(MOTOR_MOUTH_PIN) if MOTOR_MOUTH_PIN else MOUTH
+TAIL = int(MOTOR_TAIL_PIN) if MOTOR_TAIL_PIN else TAIL
+if MOTOR_HEAD_PIN or MOTOR_MOUTH_PIN or MOTOR_TAIL_PIN:
+    logger.info(f"Custom motor pins: HEAD={HEAD} MOUTH={MOUTH} TAIL={TAIL}", "⚙️")
 
 # Collect all pins we actually use
 motor_pins = [p for p in (MOUTH, HEAD, TAIL, GND_1, GND_2, GND_3) if p is not None]
